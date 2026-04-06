@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEON SaaS DASHBOARD - PRO</title>
+<style>
+    :root { --bg: #050505; --panel: #111; --neon-green: #00ffcc; --neon-purple: #ff00ff; --text: #e0e0e0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
+    body { background: var(--bg); color: var(--text); padding: 20px; overflow-x: hidden; }
+    h1, h2, h3 { color: var(--neon-purple); text-shadow: 0 0 10px var(--neon-purple); margin-bottom: 15px; }
+    .hidden { display: none !important; }
+    #login-screen { height: 80vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+    #dashboard { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; max-width: 1200px; margin: auto; }
+    @media (max-width: 768px) { #dashboard { grid-template-columns: 1fr; } }
+    .panel { background: var(--panel); border: 1px solid var(--neon-green); padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0, 255, 204, 0.1); }
+    input { width: 100%; background: #000; border: 1px solid var(--neon-green); color: var(--neon-green); padding: 10px; margin-bottom: 15px; outline: none; }
+    input:focus { box-shadow: 0 0 8px var(--neon-green); }
+    button { width: 100%; background: transparent; border: 1px solid var(--neon-green); color: var(--neon-green); padding: 10px; cursor: pointer; font-weight: bold; transition: 0.3s; text-transform: uppercase; margin-bottom: 10px; }
+    button:hover { background: var(--neon-green); color: #000; box-shadow: 0 0 15px var(--neon-green); }
+    button.danger { border-color: #ff3333; color: #ff3333; }
+    button.danger:hover { background: #ff3333; color: #000; box-shadow: 0 0 15px #ff3333; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+    .stat-box { border: 1px dashed var(--neon-purple); padding: 15px; text-align: center; }
+    .stat-box span { display: block; font-size: 24px; color: var(--neon-green); font-weight: bold; }
+    .account-item { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding: 10px 0; }
+    .account-info { word-break: break-all; }
+    .terminal { background: #000; border: 1px solid #333; height: 150px; overflow-y: auto; padding: 10px; font-size: 12px; color: #00ff00; margin-top: 15px; }
+</style>
+
+<script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+
+</head>
+<body>
+
+<div id="login-screen">
+    <h1>SYSTEM LOGIN (PRO)</h1>
+    <div class="panel" style="width: 320px;">
+        <input type="email" id="login-email" placeholder="Admin Email">
+        <input type="password" id="login-pass" placeholder="Master Password">
+        <button onclick="login()">Access System</button>
+        <button class="danger" onclick="register()">Create Admin</button>
+    </div>
+</div>
+
+<div id="dashboard" class="hidden">
+    <div class="left-col">
+        <div class="panel" style="margin-bottom: 20px;">
+            <h2>DASHBOARD</h2>
+            <div class="stats-grid">
+                <div class="stat-box">Total<br><span id="stat-total">0</span></div>
+                <div class="stat-box">Status<br><span id="stat-status" style="color: var(--neon-purple);">ONLINE</span></div>
+            </div>
+            <button class="danger" onclick="logout()">Logout</button>
+        </div>
+
+        <div class="panel">
+            <h3>[+] Add Account</h3>
+            <input type="text" id="email" placeholder="Email / Username">
+            <input type="password" id="pass" placeholder="Password">
+            <button onclick="addAccount()">Add to Firebase</button>
+        </div>
+    </div>
+
+    <div class="right-col">
+        <div class="panel" style="margin-bottom: 20px;">
+            <h3>System Terminal</h3>
+            <div class="terminal" id="terminal">Ready for secure sync...<br></div>
+        </div>
+
+        <div class="panel">
+            <h3>Cloud Records</h3>
+            <div id="list">Loading...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // الإعدادات بتاعتك اللي ربطناها بالمشروع
+    const firebaseConfig = {
+        apiKey: "AIzaSyCt0_HJSF7qadOZX3Vs03TUxX2tiEgBAx8",
+        authDomain: "account-free-c1204.firebaseapp.com",
+        projectId: "account-free-c1204",
+        storageBucket: "account-free-c1204.firebasestorage.app",
+        messagingSenderId: "245529771082",
+        appId: "1:245529771082:web:5730ba9723b2c9e59c3ab3",
+        measurementId: "G-7GZEVD8LEF"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    let accounts = [];
+
+    // مراقبة حالة تسجيل الدخول
+    auth.onAuthStateChanged(user => {
+        if (user) {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            logToTerminal(`[AUTH] Admin ${user.email} is active.`);
+            loadData();
+        } else {
+            document.getElementById('dashboard').classList.add('hidden');
+            document.getElementById('login-screen').classList.remove('hidden');
+        }
+    });
+
+    function register() {
+        const email = document.getElementById('login-email').value;
+        const pass = document.getElementById('login-pass').value;
+        auth.createUserWithEmailAndPassword(email, pass)
+            .then(() => alert("Admin User Created Successfully!"))
+            .catch(error => alert("Error: " + error.message));
+    }
+
+    function login() {
+        const email = document.getElementById('login-email').value;
+        const pass = document.getElementById('login-pass').value;
+        auth.signInWithEmailAndPassword(email, pass)
+            .catch(error => alert("Login Failed: " + error.message));
+    }
+
+    function logout() { auth.signOut(); }
+
+    function loadData() {
+        db.collection("hacked_accounts").orderBy("timestamp", "desc").onSnapshot(snapshot => {
+            accounts = [];
+            snapshot.forEach(doc => accounts.push({ id: doc.id, ...doc.data() }));
+            updateStats();
+            render();
+            logToTerminal("[SYNC] Records synchronized with Cloud.");
+        });
+    }
+
+    function addAccount() {
+        let e = document.getElementById("email");
+        let p = document.getElementById("pass");
+        if (e.value && p.value) {
+            db.collection("hacked_accounts").add({
+                email: e.value, pass: p.value,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                addedDate: new Date().toLocaleDateString()
+            }).then(() => {
+                logToTerminal(`[SUCCESS] Data pushed to Firestore.`);
+                e.value = ''; p.value = '';
+            });
+        }
+    }
+
+    function remove(id) {
+        db.collection("hacked_accounts").doc(id).delete().then(() => {
+            logToTerminal(`[WARN] Record purged.`);
+        });
+    }
+
+    function updateStats() { document.getElementById('stat-total').innerText = accounts.length; }
+
+    function render() {
+        let list = document.getElementById("list");
+        list.innerHTML = accounts.map(acc => `
+            <div class="account-item">
+                <div class="account-info">
+                    <strong style="color:var(--neon-green)">${acc.email}</strong><br>
+                    <small style="color:#888;">Pwd: ${acc.pass} | ${acc.addedDate}</small>
+                </div>
+                <button class="danger" style="width:auto; padding:5px 10px;" onclick="remove('${acc.id}')">Del</button>
+            </div>
+        `).join('') || "Database empty.";
+    }
+
+    function logToTerminal(msg) {
+        const t = document.getElementById('terminal');
+        t.innerHTML += `[${new Date().toLocaleTimeString()}] ${msg}<br>`;
+        t.scrollTop = t.scrollHeight;
+    }
+</script>
+</body>
+</html>
